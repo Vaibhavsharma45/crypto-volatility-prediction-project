@@ -12,6 +12,8 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
 import warnings
+from huggingface_hub import hf_hub_download
+
 warnings.filterwarnings('ignore')
 
 # Page configuration
@@ -50,15 +52,22 @@ st.markdown("""
 # Load model function with caching
 @st.cache_resource
 def load_model():
-    """Load trained model and components"""
+    """Load trained model from Hugging Face Hub"""
     try:
-        with open('model/volatility_model.pkl', 'rb') as f:
-            model_package = pickle.load(f)
-        return model_package
-    except FileNotFoundError:
-        st.error("❌ Model file not found! Please train the model first.")
-        return None
+        model_path = hf_hub_download(
+            repo_id="Vaibhavsharma45/crypto_pridiction_project",
+            filename="volatility_model.pkl"
+        )
 
+        with open(model_path, "rb") as f:
+            model_package = pickle.load(f)
+
+        return model_package
+
+    except Exception as e:
+        st.error("❌ Failed to load model from Hugging Face")
+        st.exception(e)
+        return None
 # Feature engineering functions
 def create_features(df):
     """
