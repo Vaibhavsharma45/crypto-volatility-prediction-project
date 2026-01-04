@@ -7,4 +7,3 @@ plotly
 streamlit
 joblib
 openpyxl
-gradio
