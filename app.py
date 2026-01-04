@@ -1,5 +1,5 @@
 """
-Streamlit Deployment App with Auto Model Training
+Streamlit Deployment App
 Interactive cryptocurrency volatility prediction web application
 Author: PW Skills Student
 """
@@ -9,8 +9,8 @@ import pandas as pd
 import numpy as np
 import pickle
 import plotly.graph_objects as go
-import os
-from pathlib import Path
+import plotly.express as px
+from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -38,85 +38,25 @@ st.markdown("""
         text-align: center;
         margin-bottom: 2rem;
     }
+    .metric-card {
+        background-color: #f0f2f6;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #1f77b4;
+    }
     </style>
 """, unsafe_allow_html=True)
-
-# Function to train model if not exists
-def train_model_if_needed():
-    """Train model if it doesn't exist"""
-    model_path = 'model/volatility_model.pkl'
-    
-    if not os.path.exists(model_path):
-        st.warning("⚠️ Model not found. Training model now... This will take a few minutes.")
-        
-        try:
-            # Import required libraries
-            from sklearn.ensemble import RandomForestRegressor
-            from sklearn.preprocessing import StandardScaler
-            
-            # Create sample model for deployment
-            # In production, you would load actual training data here
-            st.info("📊 Creating model with default parameters...")
-            
-            model = RandomForestRegressor(
-                n_estimators=100,
-                max_depth=20,
-                min_samples_split=2,
-                min_samples_leaf=1,
-                random_state=42,
-                n_jobs=-1
-            )
-            
-            scaler = StandardScaler()
-            
-            feature_columns = [
-                'open', 'high', 'low', 'close', 'volume', 'marketCap',
-                'log_return', 'volatility_14d', 
-                'ma_7', 'ma_14', 'ma_30',
-                'bb_width', 'atr', 
-                'liquidity_ratio', 'momentum_7'
-            ]
-            
-            # Create model directory if it doesn't exist
-            os.makedirs('model', exist_ok=True)
-            
-            # Package model
-            model_package = {
-                'model': model,
-                'scaler': scaler,
-                'feature_columns': feature_columns,
-                'best_params': None
-            }
-            
-            # Save model
-            with open(model_path, 'wb') as f:
-                pickle.dump(model_package, f)
-            
-            st.success("✅ Model created successfully!")
-            st.info("ℹ️ Note: This is a placeholder model. Upload data to train with actual data.")
-            
-        except Exception as e:
-            st.error(f"❌ Error creating model: {str(e)}")
-            return None
-    
-    return model_path
 
 # Load model function with caching
 @st.cache_resource
 def load_model():
     """Load trained model and components"""
     try:
-        # Check if model exists, if not create it
-        model_path = train_model_if_needed()
-        
-        if model_path and os.path.exists(model_path):
-            with open(model_path, 'rb') as f:
-                model_package = pickle.load(f)
-            return model_package
-        else:
-            return None
-    except Exception as e:
-        st.error(f"❌ Error loading model: {str(e)}")
+        with open('model/volatility_model.pkl', 'rb') as f:
+            model_package = pickle.load(f)
+        return model_package
+    except FileNotFoundError:
+        st.error("❌ Model file not found! Please train the model first.")
         return None
 
 # Feature engineering functions
@@ -162,72 +102,6 @@ def create_features(df):
     # Remove NaN values
     return df.dropna()
 
-# Train model with uploaded data
-def train_model_with_data(df, feature_columns):
-    """Train model with uploaded data"""
-    try:
-        from sklearn.ensemble import RandomForestRegressor
-        from sklearn.preprocessing import StandardScaler
-        
-        st.info("🔧 Training model with uploaded data...")
-        
-        # Create features
-        df_features = create_features(df)
-        
-        if len(df_features) < 100:
-            st.error("❌ Not enough data after feature engineering. Need at least 100 rows.")
-            return None
-        
-        # Calculate target
-        df_features['volatility_7d'] = df_features['log_return'].rolling(window=7).std()
-        df_features = df_features.dropna()
-        
-        # Prepare features and target
-        X = df_features[feature_columns]
-        y = df_features['volatility_7d']
-        
-        # Split data (80/20)
-        split_idx = int(len(df_features) * 0.8)
-        X_train = X.iloc[:split_idx]
-        y_train = y.iloc[:split_idx]
-        
-        # Scale features
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        
-        # Train model
-        model = RandomForestRegressor(
-            n_estimators=100,
-            max_depth=20,
-            random_state=42,
-            n_jobs=-1
-        )
-        
-        model.fit(X_train_scaled, y_train)
-        
-        # Save model
-        model_package = {
-            'model': model,
-            'scaler': scaler,
-            'feature_columns': feature_columns,
-            'best_params': None
-        }
-        
-        os.makedirs('model', exist_ok=True)
-        with open('model/volatility_model.pkl', 'wb') as f:
-            pickle.dump(model_package, f)
-        
-        st.success("✅ Model trained successfully with your data!")
-        
-        # Clear cache to reload new model
-        st.cache_resource.clear()
-        
-        return model_package
-        
-    except Exception as e:
-        st.error(f"❌ Error training model: {str(e)}")
-        return None
-
 # Main application
 def main():
     # Header
@@ -240,7 +114,6 @@ def main():
     model_package = load_model()
     
     if model_package is None:
-        st.error("❌ Failed to load or create model. Please check the error messages above.")
         st.stop()
     
     model = model_package['model']
@@ -257,12 +130,6 @@ def main():
         "Choose a CSV file", 
         type=['csv'],
         help="Upload CSV with columns: date, crypto_name, open, high, low, close, volume, marketCap"
-    )
-    
-    # Option to train with uploaded data
-    train_with_data = st.sidebar.checkbox(
-        "🔧 Train model with uploaded data",
-        help="Enable this to train the model with your uploaded data"
     )
     
     # Sample data format
@@ -296,15 +163,6 @@ def main():
                 st.error(f"❌ Missing required columns: {', '.join(missing_cols)}")
                 st.stop()
             
-            # Train model if requested
-            if train_with_data:
-                if st.sidebar.button("🚀 Train Model Now"):
-                    with st.spinner("Training model... This may take a few minutes..."):
-                        new_model_package = train_model_with_data(df, feature_columns)
-                        if new_model_package:
-                            model = new_model_package['model']
-                            scaler = new_model_package['scaler']
-            
             # Cryptocurrency selection
             cryptos = sorted(df['crypto_name'].unique())
             selected_crypto = st.sidebar.selectbox(
@@ -322,19 +180,35 @@ def main():
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("📅 Total Records", f"{len(crypto_df):,}")
+                st.metric(
+                    "📅 Total Records", 
+                    f"{len(crypto_df):,}",
+                    help="Number of data points available"
+                )
             
             with col2:
                 latest_price = crypto_df['close'].iloc[-1]
-                st.metric("💵 Latest Price", f"${latest_price:,.2f}")
+                st.metric(
+                    "💵 Latest Price", 
+                    f"${latest_price:,.2f}",
+                    help="Most recent closing price"
+                )
             
             with col3:
                 latest_volume = crypto_df['volume'].iloc[-1]
-                st.metric("📊 24h Volume", f"${latest_volume:,.0f}")
+                st.metric(
+                    "📊 24h Volume", 
+                    f"${latest_volume:,.0f}",
+                    help="Latest trading volume"
+                )
             
             with col4:
                 latest_mcap = crypto_df['marketCap'].iloc[-1]
-                st.metric("🏦 Market Cap", f"${latest_mcap:,.0f}")
+                st.metric(
+                    "🏦 Market Cap", 
+                    f"${latest_mcap:,.0f}",
+                    help="Latest market capitalization"
+                )
             
             # Price chart
             st.subheader("📈 Price History")
@@ -363,10 +237,6 @@ def main():
                         # Create features
                         crypto_df = create_features(crypto_df)
                         
-                        if len(crypto_df) == 0:
-                            st.error("❌ Not enough data after feature engineering. Need more historical data.")
-                            st.stop()
-                        
                         # Prepare features
                         X = crypto_df[feature_columns]
                         X_scaled = scaler.transform(X)
@@ -383,16 +253,32 @@ def main():
                         col1, col2, col3, col4 = st.columns(4)
                         
                         with col1:
-                            st.metric("Mean Volatility", f"{predictions.mean():.6f}")
+                            st.metric(
+                                "Mean Volatility",
+                                f"{predictions.mean():.6f}",
+                                help="Average predicted volatility"
+                            )
                         
                         with col2:
-                            st.metric("Max Volatility", f"{predictions.max():.6f}")
+                            st.metric(
+                                "Max Volatility",
+                                f"{predictions.max():.6f}",
+                                help="Maximum predicted volatility"
+                            )
                         
                         with col3:
-                            st.metric("Min Volatility", f"{predictions.min():.6f}")
+                            st.metric(
+                                "Min Volatility",
+                                f"{predictions.min():.6f}",
+                                help="Minimum predicted volatility"
+                            )
                         
                         with col4:
-                            st.metric("Std Volatility", f"{predictions.std():.6f}")
+                            st.metric(
+                                "Std Volatility",
+                                f"{predictions.std():.6f}",
+                                help="Standard deviation of volatility"
+                            )
                         
                         # Volatility chart
                         st.subheader("📈 Predicted Volatility Over Time")
@@ -514,7 +400,7 @@ def main():
         st.header("📖 About This Model")
         
         st.markdown("""
-        This application uses a **Random Forest Regressor** to predict 7-day rolling volatility.
+        This application uses a **Random Forest Regressor** trained on historical cryptocurrency data to predict 7-day rolling volatility.
         
         **Features Used:**
         - Price data (OHLC)
@@ -522,9 +408,10 @@ def main():
         - Technical indicators (MA, BB, ATR)
         - Log returns and momentum
         
-        **Deployment Note:**
-        - If model file is not found, a default model is created
-        - You can train the model with your own data using the checkbox in sidebar
+        **Model Performance:**
+        - Trained on 80% of historical data
+        - Evaluated using RMSE, MAE, and R² metrics
+        - Hyperparameter tuned for optimal performance
         """)
     
     # Footer
